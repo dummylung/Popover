@@ -14,6 +14,7 @@ public enum PopoverOption {
   case animationIn(TimeInterval)
   case animationOut(TimeInterval)
   case cornerRadius(CGFloat)
+  case cornerCurve(CALayerCornerCurve)
   case sideEdge(CGFloat)
   case blackOverlayColor(UIColor)
   case overlayBlur(UIBlurEffect.Style)
@@ -25,6 +26,7 @@ public enum PopoverOption {
   case initialSpringVelocity(CGFloat)
   case sideOffset(CGFloat)
   case borderColor(UIColor)
+  case anchorPoint_(CGPoint)
 }
 
 @objc public enum PopoverType: Int {
@@ -43,6 +45,7 @@ open class Popover: UIView {
   open var animationIn: TimeInterval = 0.6
   open var animationOut: TimeInterval = 0.3
   open var cornerRadius: CGFloat = 6.0
+  open var cornerCurve: CALayerCornerCurve = .continuous
   open var sideEdge: CGFloat = 20.0
   open var popoverType: PopoverType = .down
   open var blackOverlayColor: UIColor = UIColor(white: 0.0, alpha: 0.2)
@@ -56,6 +59,7 @@ open class Popover: UIView {
   open var initialSpringVelocity: CGFloat = 3
   open var sideOffset: CGFloat = 6.0
   open var borderColor: UIColor?
+  open var anchorPoint_: CGPoint?
 
   // custom closure
   open var willShowHandler: (() -> ())?
@@ -69,6 +73,7 @@ open class Popover: UIView {
   fileprivate var contentView: UIView!
   fileprivate var contentViewFrame: CGRect!
   fileprivate var arrowShowPoint: CGPoint!
+  fileprivate var arrowInitialOffset = UIOffset.zero
 
   public init() {
     super.init(frame: .zero)
@@ -168,14 +173,14 @@ open class Popover: UIView {
     self.show(contentView, point: point, inView: inView)
   }
 
-  open func show(_ contentView: UIView, point: CGPoint) {
+  open func show(_ contentView: UIView, point: CGPoint, offset: UIOffset = .zero) {
     guard let rootView = UIApplication.shared.keyWindow else {
       return
     }
-    self.show(contentView, point: point, inView: rootView)
+      self.show(contentView, point: point, inView: rootView, offset: offset)
   }
 
-  open func show(_ contentView: UIView, point: CGPoint, inView: UIView) {
+  open func show(_ contentView: UIView, point: CGPoint, inView: UIView, offset: UIOffset = .zero) {
     if self.dismissOnBlackOverlayTap || self.showBlackOverlay {
       self.blackOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
       self.blackOverlay.frame = inView.bounds
@@ -204,8 +209,10 @@ open class Popover: UIView {
     self.contentView = contentView
     self.contentView.backgroundColor = UIColor.clear
     self.contentView.layer.cornerRadius = self.cornerRadius
+    self.contentView.layer.cornerCurve = self.cornerCurve
     self.contentView.layer.masksToBounds = true
     self.arrowShowPoint = point
+    self.arrowInitialOffset = offset
     self.show()
   }
 
@@ -220,8 +227,9 @@ open class Popover: UIView {
       UIView.animate(withDuration: self.animationOut, delay: 0,
                      options: UIView.AnimationOptions(),
                      animations: {
-                      self.transform = CGAffineTransform(scaleX: 0.0001, y: 0.0001)
-                      self.blackOverlay.alpha = 0
+          self.transform = CGAffineTransform(scaleX: 0.0001, y: 0.0001)
+              .concatenating(CGAffineTransform(translationX: self.arrowInitialOffset.horizontal, y: self.arrowInitialOffset.vertical))
+          self.blackOverlay.alpha = 0
       }){ _ in
         self.contentView.removeFromSuperview()
         self.blackOverlay.removeFromSuperview()
@@ -516,6 +524,8 @@ private extension Popover {
           self.animationOut = value
         case let .cornerRadius(value):
           self.cornerRadius = value
+        case let .cornerCurve(value):
+          self.cornerCurve = value
         case let .sideEdge(value):
           self.sideEdge = value
         case let .blackOverlayColor(value):
@@ -538,6 +548,8 @@ private extension Popover {
           self.sideOffset = value
         case let .borderColor(value):
           self.borderColor = value
+        case let .anchorPoint_(value):
+          self.anchorPoint_ = value
         }
       }
     }
@@ -566,34 +578,45 @@ private extension Popover {
         frame.origin.x += abs(frame.minX) + sideEdge
       }
     }
+     
     self.frame = frame
 
     let arrowPoint = self.containerView.convert(self.arrowShowPoint, to: self)
     var anchorPoint: CGPoint
-    switch self.popoverType {
-    case .up:
-      frame.origin.y = self.arrowShowPoint.y - frame.height - self.arrowSize.height
-      anchorPoint = CGPoint(x: arrowPoint.x / frame.size.width, y: 1)
-    case .down, .auto:
-      frame.origin.y = self.arrowShowPoint.y
-      anchorPoint = CGPoint(x: arrowPoint.x / frame.size.width, y: 0)
-    case .left:
-        frame.origin.x = self.arrowShowPoint.x - frame.size.width - self.arrowSize.height
-        anchorPoint = CGPoint(x: 1, y: 0.5)
-    case .right:
-        frame.origin.x = self.arrowShowPoint.x
-        anchorPoint = CGPoint(x: 0, y: 0.5)
-    }
+      
+//      if let _anchorPoint = self.anchorPoint_ {
+//          anchorPoint = _anchorPoint
+//      }
+      
+      switch self.popoverType {
+      case .up:
+        frame.origin.y = self.arrowShowPoint.y - frame.height - self.arrowSize.height
+        anchorPoint = self.anchorPoint_ ?? CGPoint(x: arrowPoint.x / frame.size.width, y: 1)
+      case .down, .auto:
+        frame.origin.y = self.arrowShowPoint.y
+        frame.origin.x = self.anchorPoint_ != nil ? frame.origin.x-(self.anchorPoint_!.x * frame.size.width) + frame.size.width*0.5 : frame.origin.x
+        anchorPoint = self.anchorPoint_ ?? CGPoint(x: arrowPoint.x / frame.size.width, y: 0)
+      case .left:
+          frame.origin.x = self.arrowShowPoint.x - frame.size.width - self.arrowSize.height
+          anchorPoint = self.anchorPoint_ ?? CGPoint(x: 1, y: 0.5)
+      case .right:
+          frame.origin.x = self.arrowShowPoint.x
+          anchorPoint = self.anchorPoint_ ?? CGPoint(x: 0, y: 0.5)
+      }
 
-    if self.arrowSize == .zero {
-      anchorPoint = CGPoint(x: 0.5, y: 0.5)
-    }
-
+      if self.arrowSize == .zero {
+        anchorPoint = CGPoint(x: 0.5, y: 0.5)
+      }
+    
     let lastAnchor = self.layer.anchorPoint
     self.layer.anchorPoint = anchorPoint
     let x = self.layer.position.x + (anchorPoint.x - lastAnchor.x) * self.layer.bounds.size.width
     let y = self.layer.position.y + (anchorPoint.y - lastAnchor.y) * self.layer.bounds.size.height
-    self.layer.position = CGPoint(x: x, y: y)
+//      if let _anchorPoint = self.anchorPoint_ {
+//          self.layer.position = CGPoint(x: x + _anchorPoint.x * self.layer.bounds.size.width, y: y + _anchorPoint.x * self.layer.bounds.size.height)
+//      } else {
+          self.layer.position = CGPoint(x: x, y: y)
+//      }
 
     switch self.popoverType {
     case .up, .down, .auto:
@@ -602,6 +625,10 @@ private extension Popover {
         frame.size.width += self.arrowSize.height
     }
     
+    let margin: CGFloat = 12
+    frame.origin.x = min(max(margin, frame.origin.x), containerView.frame.width-frame.width-margin)
+    frame.origin.y = min(max(margin, frame.origin.y), containerView.frame.height-frame.height-margin)
+     
     self.frame = frame
   }
 
@@ -633,7 +660,9 @@ private extension Popover {
     self.containerView.addSubview(self)
 
     self.create()
-    self.transform = CGAffineTransform(scaleX: 0.0, y: 0.0)
+      self.transform = CGAffineTransform(scaleX: 0.0, y: 0.0)
+          .concatenating(CGAffineTransform(translationX: arrowInitialOffset.horizontal, y: arrowInitialOffset.vertical))
+    
     self.willShowHandler?()
     UIView.animate(
       withDuration: self.animationIn,
